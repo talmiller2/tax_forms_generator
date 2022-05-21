@@ -1,9 +1,12 @@
+import argparse
+import copy
 import csv
 import datetime
-import copy
+import os
+
 import openpyxl
 from currency_converter import CurrencyConverter, ECB_URL
-import os
+
 
 def get_date_format(datetime_string):
     """
@@ -104,15 +107,16 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                                                                              date=closed_lot_dict['close_datetime'])
                         closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                    closed_lot_dict['open_currency_factor']
-                        closed_lot_dict['open_value_ILS'] = closed_lot_dict['open_value'] * closed_lot_dict[
-                            'open_currency_factor']
-                        closed_lot_dict['close_value_ILS'] = closed_lot_dict['close_value'] * closed_lot_dict[
-                            'close_currency_factor']
-                        closed_lot_dict['close_value_ILS_adjusted'] = closed_lot_dict['close_value'] * closed_lot_dict[
-                            'open_currency_factor']
-                        profit_method_1 = closed_lot_dict['close_value_ILS'] - closed_lot_dict['open_value_ILS']
-                        profit_method_2 = closed_lot_dict['close_value_ILS_adjusted'] - closed_lot_dict[
-                            'open_value_ILS']
+                        closed_lot_dict['open_value_ILS'] = closed_lot_dict['open_value'] \
+                                                            * closed_lot_dict['open_currency_factor']
+                        closed_lot_dict['open_value_ILS_adjusted'] = closed_lot_dict['open_value'] \
+                                                                     * closed_lot_dict['close_currency_factor']
+                        closed_lot_dict['close_value_ILS'] = closed_lot_dict['close_value'] \
+                                                             * closed_lot_dict['close_currency_factor']
+                        profit_method_1 = closed_lot_dict['close_value_ILS'] \
+                                          - closed_lot_dict['open_value_ILS']
+                        profit_method_2 = closed_lot_dict['close_value_ILS'] \
+                                          - closed_lot_dict['open_value_ILS_adjusted']
                         if closed_lot_dict['profit'] >= 0:
                             closed_lot_dict['profit_ILS'] = max(min(profit_method_1, profit_method_2), 0)
                         elif closed_lot_dict['profit'] < 0:
@@ -150,7 +154,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                         if ind_correct is not None:
                             dividends_list[ind_correct]['withholding_tax'] += event_dict['amount']
 
-    # some post-processing for the divideds
+    # some post-processing for the dividends
     for ind, dividend_dict in enumerate(dividends_list):
         dividend_dict['currency_factor'] = c.convert(1, dividend_dict['currency'], 'ILS',
                                                      date=dividend_dict['datetime'])
@@ -168,9 +172,9 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
             output_string += 'quantity=' + str(closed_lot_dict['quantity']) + ', '
             output_string += 'open_value=' + str(closed_lot_dict['open_value']) + ', '
             output_string += 'close_value=' + str(closed_lot_dict['close_value']) + ', '
-            output_string += 'profit=' + str(closed_lot_dict['profit'])
-            rate_open = c.convert(1, 'USD', 'ILS', date=closed_lot_dict['open_datetime'])
-            rate_close = c.convert(1, 'USD', 'ILS', date=closed_lot_dict['close_datetime'])
+            output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
+            rate_open = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
+            rate_close = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
             output_string += 'rate open=' + str(rate_open) + ', rate_close=' + str(rate_close)
             print(output_string)
 
@@ -178,6 +182,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
     inds_sorted_close_dates = [i[0] for i in sorted(enumerate(closed_lots_datetime_list), key=lambda x: x[1])]
 
     return closed_lots_list, inds_sorted_close_dates, dividends_list
+
 
 def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list):
     """
@@ -205,7 +210,7 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
         sheet['I' + str(num_row)] = closed_lot_dict['open_currency_factor']
         sheet['J' + str(num_row)] = closed_lot_dict['close_currency_factor']
         sheet['K' + str(num_row)] = closed_lot_dict['currency_factor_ratio']
-        sheet['L' + str(num_row)] = closed_lot_dict['close_value_ILS_adjusted']
+        sheet['L' + str(num_row)] = closed_lot_dict['open_value_ILS_adjusted']
         sheet['N' + str(num_row)] = closed_lot_dict['close_value_ILS']
         if closed_lot_dict['profit_ILS'] >= 0:
             sheet['O' + str(num_row)] = closed_lot_dict['profit_ILS']
@@ -265,8 +270,9 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
         sheet2['K5'] = total_dividends_minus_tax
         sheet2['L5'] = total_dividends_minus_tax_ILS
 
-    xfile.save(file_dir + 'tax_forms_' + csv_file_name + '.xlsx')
+    xfile.save(file_dir + '/tax_forms_' + csv_file_name + '.xlsx')
     return
+
 
 def generate_tax_forms(file_dir, csv_file_name, verbosity=0):
     """
@@ -278,3 +284,13 @@ def generate_tax_forms(file_dir, csv_file_name, verbosity=0):
                                                                                       verbosity=verbosity)
     write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list)
     return
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run tax forms generator")
+    parser.add_argument("-dir", "--dir", type=str, required=True, help="directory path of the csv file")
+    parser.add_argument("-csv_file_name", "--csv_name", type=str, required=True, help="csv file name (without suffix)")
+    parser.add_argument("-verbosity", "--verbosity", default=0, type=int, required=False,
+                        help="verbosity of output during run")
+    args = parser.parse_args()
+    generate_tax_forms(args.dir, args.csv_name, args.verbosity)
