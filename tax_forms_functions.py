@@ -82,23 +82,36 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                         closed_lot_dict['open_datetime'] = trade_dict['datetime']
                         closed_lot_dict['open_date'] = closed_lot_dict['open_datetime'].strftime("%d/%m/%Y")
                         closed_lot_dict['quantity'] = trade_dict['quantity']
-                        closed_lot_dict['close_price'] = previous_trade_dict['price']
+
+                        # the transaction-price for ClosedLot is the open price adjusted for fees:
                         closed_lot_dict['open_price'] = trade_dict['price']
-                        # for the close_value need to deduct the fee for closing the position
+
+                        # the transaction-price for the previous Trade is the close price NOT adjusted for fees:
+                        closed_lot_dict['close_price'] = previous_trade_dict['price']
+
                         # the following works for both long/short positions
                         closed_lot_dict['close_value'] = closed_lot_dict['quantity'] * closed_lot_dict['close_price']
-                        closed_lot_dict['close_value'] -= previous_trade_dict['fee']
+
                         # the open_value already takes into account the fee for opening the position
                         closed_lot_dict['open_value'] = closed_lot_dict['quantity'] * closed_lot_dict['open_price']
+
+                        # prices written per single stock but option contract are for 100 stock units
                         if row[col_asset_category] == 'Equity and Index Options':
-                            # prices written per single stock but option contract are for 100 stock units
                             closed_lot_dict['close_value'] *= 100
                             closed_lot_dict['open_value'] *= 100
+
+                        # reducing the fee from close_value, but after the multiplication in case of options
+                        # (othersise the fee is artificially multiplied by 100):
+                        closed_lot_dict['close_value'] -= previous_trade_dict['fee']
+
+                        # calculate profit in the original currency
+                        closed_lot_dict['profit'] = closed_lot_dict['close_value'] - closed_lot_dict['open_value']
+
+                        # note position type
                         if trade_dict['quantity'] > 0:
                             closed_lot_dict['position_type'] = 'long'
                         else:
                             closed_lot_dict['position_type'] = 'short'
-                        closed_lot_dict['profit'] = closed_lot_dict['close_value'] - closed_lot_dict['open_value']
 
                         # convert numbers from base currency to ILS and calculate profit and loss according to Israeli regulation
                         closed_lot_dict['open_currency_factor'] = c.convert(1, closed_lot_dict['currency'], 'ILS',
