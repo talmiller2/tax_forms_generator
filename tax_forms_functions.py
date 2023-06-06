@@ -6,7 +6,7 @@ import os
 
 import openpyxl
 from currency_converter import CurrencyConverter, ECB_URL
-
+from cpi_israel_scraper import cpi_israel_scraper
 
 def get_date_format(datetime_string):
     """
@@ -30,6 +30,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
     c = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
+    cpi = cpi_israel_scraper()
 
     # csv file column definitions
     col_main_type = 0
@@ -120,20 +121,31 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                                                                              date=closed_lot_dict['close_datetime'])
                         closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                    closed_lot_dict['open_currency_factor']
+
+                        closed_lot_dict['open_cpi'] = cpi.get_cpi_value(closed_lot_dict['open_datetime'])
+                        closed_lot_dict['close_cpi'] = cpi.get_cpi_value(closed_lot_dict['close_datetime'])
+                        closed_lot_dict['cpi_ratio'] = closed_lot_dict['close_cpi'] / closed_lot_dict['open_cpi']
+
                         closed_lot_dict['open_value_ILS'] = closed_lot_dict['open_value'] \
                                                             * closed_lot_dict['open_currency_factor']
-                        closed_lot_dict['open_value_ILS_adjusted'] = closed_lot_dict['open_value'] \
-                                                                     * closed_lot_dict['close_currency_factor']
+                        closed_lot_dict['open_value_ILS_adjusted_forex'] = closed_lot_dict['open_value_ILS'] \
+                                                                           * closed_lot_dict['currency_factor_ratio']
+                        closed_lot_dict['open_value_ILS_adjusted_cpi'] = closed_lot_dict['open_value_ILS'] \
+                                                                         * closed_lot_dict['cpi_ratio']
                         closed_lot_dict['close_value_ILS'] = closed_lot_dict['close_value'] \
                                                              * closed_lot_dict['close_currency_factor']
-                        profit_method_1 = closed_lot_dict['close_value_ILS'] \
+                        profit_trivial = closed_lot_dict['close_value_ILS'] \
                                           - closed_lot_dict['open_value_ILS']
-                        profit_method_2 = closed_lot_dict['close_value_ILS'] \
-                                          - closed_lot_dict['open_value_ILS_adjusted']
+                        profit_adjusted_forex = closed_lot_dict['close_value_ILS'] \
+                                                - closed_lot_dict['open_value_ILS_adjusted_forex']
+                        profit_adjusted_cpi = closed_lot_dict['close_value_ILS'] \
+                                              - closed_lot_dict['open_value_ILS_adjusted_cpi']
                         if closed_lot_dict['profit'] >= 0:
-                            closed_lot_dict['profit_ILS'] = max(min(profit_method_1, profit_method_2), 0)
+                            closed_lot_dict['profit_ILS_forex'] = max(min(profit_trivial, profit_adjusted_forex), 0)
+                            closed_lot_dict['profit_ILS_cpi'] = max(min(profit_trivial, profit_adjusted_cpi), 0)
                         elif closed_lot_dict['profit'] < 0:
-                            closed_lot_dict['profit_ILS'] = min(max(profit_method_1, profit_method_2), 0)
+                            closed_lot_dict['profit_ILS_forex'] = min(max(profit_trivial, profit_adjusted_forex), 0)
+                            closed_lot_dict['profit_ILS_cpi'] = min(max(profit_trivial, profit_adjusted_cpi), 0)
 
                         closed_lots_list += [closed_lot_dict]
                         closed_lots_datetime_list += [closed_lot_dict['close_datetime']]
@@ -179,6 +191,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
         for closed_lot_dict in closed_lots_list:
             output_string = ''
             output_string += 'ticker ' + closed_lot_dict['ticker'] + ': '
+            output_string += 'currency ' + closed_lot_dict['currency'] + ', '
             output_string += 'open_date ' + closed_lot_dict['open_date'] + ', '
             output_string += 'close_date ' + closed_lot_dict['close_date'] + ', '
             output_string += 'position_type: ' + closed_lot_dict['position_type'] + ', '
@@ -188,7 +201,11 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
             output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
             rate_open = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
             rate_close = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
-            output_string += 'rate open=' + str(rate_open) + ', rate_close=' + str(rate_close)
+            output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
+            output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
+                             + ', close=' + str(closed_lot_dict['close_cpi']) \
+                             + ', ratio=' + str(closed_lot_dict['cpi_ratio'])
+
             print(output_string)
 
     # sort closed-lots by closing date, as required in form 1325
@@ -206,51 +223,60 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
     template_file = os.path.dirname(os.path.abspath(__file__)) + '/tax_forms_template.xlsx'
     xfile = openpyxl.load_workbook(template_file)
 
-    sheet = xfile.get_sheet_by_name('CapitalGains')
-    total_profit_and_loss_ILS = 0
-    total_sell_amount_ILS = 0
-    for ind_line, ind_sort in enumerate(inds_sorted_close_dates):
-        closed_lot_dict = closed_lots_list[ind_sort]
-        num_row = ind_line + 6
-        sheet['B' + str(num_row)] = ind_line + 1
-        sheet['C' + str(num_row)] = closed_lot_dict['ticker']
-        sheet['M' + str(num_row)] = closed_lot_dict['close_date']
-        sheet['F' + str(num_row)] = closed_lot_dict['open_date']
-        sheet['E' + str(num_row)] = closed_lot_dict['close_value']
-        sheet['G' + str(num_row)] = closed_lot_dict['open_value']
+    for sheet_name in ['Capital Gains (FOREX adjusted)', 'Capital Gains (CPI adjusted)']:
+        sheet = xfile.get_sheet_by_name(sheet_name)
+        total_profit_and_loss_ILS = 0
+        total_sell_amount_ILS = 0
+        for ind_line, ind_sort in enumerate(inds_sorted_close_dates):
+            closed_lot_dict = closed_lots_list[ind_sort]
+            num_row = ind_line + 6
+            sheet['B' + str(num_row)] = ind_line + 1
+            sheet['C' + str(num_row)] = closed_lot_dict['ticker']
+            sheet['E' + str(num_row)] = closed_lot_dict['currency']
+            sheet['G' + str(num_row)] = closed_lot_dict['open_date']
+            sheet['N' + str(num_row)] = closed_lot_dict['close_date']
+            sheet['H' + str(num_row)] = closed_lot_dict['open_value']
+            sheet['F' + str(num_row)] = closed_lot_dict['close_value']
+            sheet['I' + str(num_row)] = closed_lot_dict['open_value_ILS']
+            sheet['J' + str(num_row)] = closed_lot_dict['open_currency_factor']
+            sheet['K' + str(num_row)] = closed_lot_dict['close_currency_factor']
+            sheet['O' + str(num_row)] = closed_lot_dict['close_value_ILS']
+            if sheet_name == 'Capital Gains (FOREX adjusted)':
+                sheet['L' + str(num_row)] = closed_lot_dict['currency_factor_ratio']
+                sheet['M' + str(num_row)] = closed_lot_dict['open_value_ILS_adjusted_forex']
+                profit_ILS_name = 'profit_ILS_forex'
+            elif sheet_name == 'Capital Gains (CPI adjusted)':
+                sheet['L' + str(num_row)] = closed_lot_dict['cpi_ratio']
+                sheet['M' + str(num_row)] = closed_lot_dict['open_value_ILS_adjusted_cpi']
+                profit_ILS_name = 'profit_ILS_cpi'
+            else:
+                raise ValueError('invalid option for sheet_name', sheet_name)
 
-        sheet['H' + str(num_row)] = closed_lot_dict['open_value_ILS']
-        sheet['I' + str(num_row)] = closed_lot_dict['open_currency_factor']
-        sheet['J' + str(num_row)] = closed_lot_dict['close_currency_factor']
-        sheet['K' + str(num_row)] = closed_lot_dict['currency_factor_ratio']
-        sheet['L' + str(num_row)] = closed_lot_dict['open_value_ILS_adjusted']
-        sheet['N' + str(num_row)] = closed_lot_dict['close_value_ILS']
-        if closed_lot_dict['profit_ILS'] >= 0:
-            sheet['O' + str(num_row)] = closed_lot_dict['profit_ILS']
-        else:
-            sheet['P' + str(num_row)] = closed_lot_dict['profit_ILS']
-        total_profit_and_loss_ILS += closed_lot_dict['profit_ILS']
+            if closed_lot_dict[profit_ILS_name] >= 0:
+                sheet['P' + str(num_row)] = closed_lot_dict[profit_ILS_name]
+            else:
+                sheet['Q' + str(num_row)] = closed_lot_dict[profit_ILS_name]
+            total_profit_and_loss_ILS += closed_lot_dict[profit_ILS_name]
 
-        # summing all sell prices (or absolute value of buy prices in case of short position)
-        if closed_lot_dict['position_type'] == 'long':
-            total_sell_amount_ILS += closed_lot_dict['close_value_ILS']
-        elif closed_lot_dict['position_type'] == 'short':
-            total_sell_amount_ILS += abs(closed_lot_dict['open_value_ILS'])
+            # summing all sell prices (or absolute value of buy prices in case of short position)
+            if closed_lot_dict['position_type'] == 'long':
+                total_sell_amount_ILS += closed_lot_dict['close_value_ILS']
+            elif closed_lot_dict['position_type'] == 'short':
+                total_sell_amount_ILS += abs(closed_lot_dict['open_value_ILS'])
 
-        # extra columns not needed for form 1325, but printed for the user:
-        sheet['U' + str(num_row)] = closed_lot_dict['position_type']
-        sheet['V' + str(num_row)] = closed_lot_dict['quantity']
-        sheet['W' + str(num_row)] = closed_lot_dict['open_price']
-        sheet['X' + str(num_row)] = closed_lot_dict['close_price']
-        sheet['Y' + str(num_row)] = closed_lot_dict['profit']
-        sheet['Z' + str(num_row)] = closed_lot_dict['currency']
+            # extra columns not needed for form 1325, but printed for the user:
+            sheet['V' + str(num_row)] = closed_lot_dict['position_type']
+            sheet['W' + str(num_row)] = closed_lot_dict['quantity']
+            sheet['X' + str(num_row)] = closed_lot_dict['open_price']
+            sheet['Y' + str(num_row)] = closed_lot_dict['close_price']
+            sheet['Z' + str(num_row)] = closed_lot_dict['profit']
 
-    sheet['R5'] = total_profit_and_loss_ILS
-    sheet['S5'] = total_sell_amount_ILS
+        sheet['S5'] = total_profit_and_loss_ILS
+        sheet['T5'] = total_sell_amount_ILS
 
     # collect dividends and taxes for forms 1322, 1324
     if len(dividends_list) > 0:
-        sheet2 = xfile.get_sheet_by_name('Dividends')
+        sheet = xfile.get_sheet_by_name('Dividends')
         total_dividends = 0
         total_dividends_ILS = 0
         withholding_tax = 0
@@ -259,14 +285,15 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
         total_dividends_minus_tax_ILS = 0
         for ind_line, dividend_dict in enumerate(dividends_list):
             num_row = ind_line + 6
-            sheet2['B' + str(num_row)] = ind_line + 1
-            sheet2['C' + str(num_row)] = dividend_dict['date']
-            sheet2['D' + str(num_row)] = dividend_dict['ticker']
-            sheet2['E' + str(num_row)] = dividend_dict['dividend']
-            sheet2['F' + str(num_row)] = dividend_dict['withholding_tax']
-            sheet2['G' + str(num_row)] = dividend_dict['currency_factor']
-            sheet2['H' + str(num_row)] = dividend_dict['dividend_ILS']
-            sheet2['I' + str(num_row)] = dividend_dict['withholding_tax_ILS']
+            sheet['B' + str(num_row)] = ind_line + 1
+            sheet['C' + str(num_row)] = dividend_dict['date']
+            sheet['D' + str(num_row)] = dividend_dict['ticker']
+            sheet['E' + str(num_row)] = dividend_dict['currency']
+            sheet['F' + str(num_row)] = dividend_dict['dividend']
+            sheet['G' + str(num_row)] = dividend_dict['withholding_tax']
+            sheet['H' + str(num_row)] = dividend_dict['currency_factor']
+            sheet['I' + str(num_row)] = dividend_dict['dividend_ILS']
+            sheet['J' + str(num_row)] = dividend_dict['withholding_tax_ILS']
 
             total_dividends += dividend_dict['dividend']
             total_dividends_ILS += dividend_dict['dividend_ILS']
@@ -276,12 +303,9 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
             total_dividends_minus_tax += dividend_dict['dividend'] - abs(dividend_dict['withholding_tax'])
             total_dividends_minus_tax_ILS += dividend_dict['dividend_ILS'] - abs(dividend_dict['withholding_tax_ILS'])
 
-        sheet2['E5'] = total_dividends
-        sheet2['F5'] = withholding_tax
-        sheet2['H5'] = total_dividends_ILS
-        sheet2['I5'] = withholding_tax_ILS
-        sheet2['K5'] = total_dividends_minus_tax
-        sheet2['L5'] = total_dividends_minus_tax_ILS
+        sheet['I5'] = total_dividends_ILS
+        sheet['J5'] = withholding_tax_ILS
+        sheet['L5'] = total_dividends_minus_tax_ILS
 
     xfile.save(file_dir + '/tax_forms_' + csv_file_name + '.xlsx')
     return
