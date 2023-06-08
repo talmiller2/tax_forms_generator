@@ -20,11 +20,10 @@ def get_date_format(datetime_string):
         elif '-' in datetime_string:
             date_format = '%Y-%m-%d'
         else:
-            raise ValueError('cannot read date properly.')
+            raise ValueError('cannot read date properly. datetime_string=', datetime_string)
     return date_format
 
-
-def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
+def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0):
     """
     read the csv output file from IB and extract the necessary data for closing transactions and dividends
     """
@@ -33,16 +32,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
     cpi = cpi_israel_scraper()
 
     # csv file column definitions
-    col_main_type = 0
-    col_header = 1
-    col_trade_type = 2
-    col_asset_category = 3
-    col_currency = 4
-    col_ticker = 5
-    col_datetime = 6
-    col_quantity = 8
-    col_price = 9
-    col_fee = 12
+    col_names = get_trades_col_names(csv_file)
 
     # open file in read mode
     with open(csv_file, 'r') as read_obj:
@@ -51,27 +41,26 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
         previous_trade_dict = None
         closed_lots_list = []
         closed_lots_datetime_list = []
-        dividends_list = []
 
         for row in csv_reader:
             if verbosity == 1:
                 print(row)
 
             # skip irrelevant rows
-            if row[col_main_type] == 'Trades' and row[col_asset_category] in ['Stocks', 'Equity and Index Options']:
-                if row[col_trade_type] in ['Trade', 'ClosedLot']:
+            if row[col_names['main']] == 'Trades' and row[col_names['asset_category']] in ['Stocks', 'Equity and Index Options']:
+                if row[col_names['trade_type']] in ['Trade', 'ClosedLot']:
                     trade_dict = {}
-                    trade_dict['trade_type'] = row[col_trade_type]
-                    trade_dict['currency'] = row[col_currency]
-                    trade_dict['ticker'] = row[col_ticker]
-                    datetime_string = row[col_datetime]
+                    trade_dict['trade_type'] = row[col_names['trade_type']]
+                    trade_dict['currency'] = row[col_names['currency']]
+                    trade_dict['ticker'] = row[col_names['ticker']]
+                    datetime_string = row[col_names['datetime']]
                     date_format = get_date_format(datetime_string)
                     trade_dict['datetime'] = datetime.datetime.strptime(datetime_string, date_format)
                     trade_dict['quantity'] = float(
-                        row[col_quantity].replace(',', ''))  # remove comma from strings of quantities
-                    trade_dict['price'] = float(row[col_price])
-                    if row[col_trade_type] == 'Trade':
-                        trade_dict['fee'] = abs(float(row[col_fee]))
+                        row[col_names['quantity']].replace(',', ''))  # remove comma from strings of quantities
+                    trade_dict['price'] = float(row[col_names['price']])
+                    if row[col_names['trade_type']] == 'Trade':
+                        trade_dict['fee'] = abs(float(row[col_names['fee']]))
                     if trade_dict['trade_type'] == 'Trade':
                         previous_trade_dict = copy.deepcopy(trade_dict)
                     elif trade_dict['trade_type'] == 'ClosedLot':
@@ -97,7 +86,7 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                         closed_lot_dict['open_value'] = closed_lot_dict['quantity'] * closed_lot_dict['open_price']
 
                         # prices written per single stock but option contract are for 100 stock units
-                        if row[col_asset_category] == 'Equity and Index Options':
+                        if row[col_names['asset_category']] == 'Equity and Index Options':
                             closed_lot_dict['close_value'] *= 100
                             closed_lot_dict['open_value'] *= 100
 
@@ -150,24 +139,68 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
                         closed_lots_list += [closed_lot_dict]
                         closed_lots_datetime_list += [closed_lot_dict['close_datetime']]
 
-            elif row[col_main_type] in ['Dividends', 'Withholding Tax'] and row[col_header] == 'Data':
+    if verbosity == 1:
+        for closed_lot_dict in closed_lots_list:
+            output_string = ''
+            output_string += 'ticker ' + closed_lot_dict['ticker'] + ': '
+            output_string += 'currency ' + closed_lot_dict['currency'] + ', '
+            output_string += 'open_date ' + closed_lot_dict['open_date'] + ', '
+            output_string += 'close_date ' + closed_lot_dict['close_date'] + ', '
+            output_string += 'position_type: ' + closed_lot_dict['position_type'] + ', '
+            output_string += 'quantity=' + str(closed_lot_dict['quantity']) + ', '
+            output_string += 'open_value=' + str(closed_lot_dict['open_value']) + ', '
+            output_string += 'close_value=' + str(closed_lot_dict['close_value']) + ', '
+            output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
+            rate_open = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
+            rate_close = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
+            output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
+            output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
+                             + ', close=' + str(closed_lot_dict['close_cpi']) \
+                             + ', ratio=' + str(closed_lot_dict['cpi_ratio'])
+            print(output_string)
+
+    # sort closed-lots by closing date, as required in form 1325
+    inds_sorted_close_dates = [i[0] for i in sorted(enumerate(closed_lots_datetime_list), key=lambda x: x[1])]
+
+    return closed_lots_list, inds_sorted_close_dates
+
+
+def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0):
+    """
+    read the csv output file from IB and extract the necessary data for dividends
+    """
+    csv_file = file_dir + '/' + csv_file_name + '.csv'
+    c = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
+
+    # csv file column definitions
+    col_names = get_dividends_col_names(csv_file)
+
+    # open file in read mode
+    with open(csv_file, 'r') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        dividends_list = []
+        for row in csv_reader:
+            if verbosity == 1:
+                print(row)
+
+            elif row[col_names['main']] in ['Dividends', 'Withholding Tax'] and row[col_names['header']] == 'Data':
                 event_dict = {}
-                event_dict['currency'] = row[2]
+                event_dict['currency'] = row[col_names['currency']]
                 if 'Total' not in event_dict['currency']:
-                    datetime_string = row[3]
+                    datetime_string = row[col_names['datetime']]
                     date_format = get_date_format(datetime_string)
                     event_dict['datetime'] = datetime.datetime.strptime(datetime_string, date_format)
                     event_dict['date'] = event_dict['datetime'].strftime("%d/%m/%Y")
-                    event_dict['ticker'] = row[4].split('(')[0]
-                    event_dict['amount'] = float(row[5])
-                    if row[col_main_type] == 'Dividends':
+                    event_dict['ticker'] = row[col_names['ticker']].split('(')[0]
+                    event_dict['amount'] = float(row[col_names['amount']])
+                    if row[col_names['main']] == 'Dividends':
                         if len(dividends_list) > 0 and dividends_list[-1]['ticker'] == event_dict['ticker'] \
                                 and dividends_list[-1]['date'] == event_dict['date']:
                             dividends_list[-1]['amount'] += event_dict['amount']
                         else:
                             event_dict['withholding_tax'] = 0
                             dividends_list += [event_dict]
-                    elif row[col_main_type] == 'Withholding Tax':
+                    elif row[col_names['main']] == 'Withholding Tax':
                         # find correct element in dividends list
                         ind_correct = None
                         for ind, dividend_dict in enumerate(dividends_list):
@@ -187,31 +220,58 @@ def extract_data_from_csv(file_dir, csv_file_name, verbosity=0):
         dividend_dict['dividend_ILS'] = dividend_dict['dividend'] * dividend_dict['currency_factor']
         dividend_dict['withholding_tax_ILS'] = dividend_dict['withholding_tax'] * dividend_dict['currency_factor']
 
-    if verbosity == 1:
-        for closed_lot_dict in closed_lots_list:
-            output_string = ''
-            output_string += 'ticker ' + closed_lot_dict['ticker'] + ': '
-            output_string += 'currency ' + closed_lot_dict['currency'] + ', '
-            output_string += 'open_date ' + closed_lot_dict['open_date'] + ', '
-            output_string += 'close_date ' + closed_lot_dict['close_date'] + ', '
-            output_string += 'position_type: ' + closed_lot_dict['position_type'] + ', '
-            output_string += 'quantity=' + str(closed_lot_dict['quantity']) + ', '
-            output_string += 'open_value=' + str(closed_lot_dict['open_value']) + ', '
-            output_string += 'close_value=' + str(closed_lot_dict['close_value']) + ', '
-            output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
-            rate_open = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
-            rate_close = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
-            output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
-            output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
-                             + ', close=' + str(closed_lot_dict['close_cpi']) \
-                             + ', ratio=' + str(closed_lot_dict['cpi_ratio'])
+    return dividends_list
 
-            print(output_string)
 
-    # sort closed-lots by closing date, as required in form 1325
-    inds_sorted_close_dates = [i[0] for i in sorted(enumerate(closed_lots_datetime_list), key=lambda x: x[1])]
+def get_trades_col_names(csv_file):
+    col_names = {}
+    with open(csv_file, 'r') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            if row[0] == 'Trades' and row[1] == 'Header':
+                col_names['main'] = 0
+                col_names['header'] = 1
+                for col_index, element in enumerate(row):
+                    if element == 'DataDiscriminator':
+                        col_names['trade_type'] = col_index
+                    if element == 'Asset Category':
+                        col_names['asset_category'] = col_index
+                    if element == 'Currency':
+                        col_names['currency'] = col_index
+                    if element == 'Symbol':
+                        col_names['ticker'] = col_index
+                    if element == 'Date/Time':
+                        col_names['datetime'] = col_index
+                    if element == 'Quantity':
+                        col_names['quantity'] = col_index
+                    if element == 'T. Price':
+                        col_names['price'] = col_index
+                    if element == 'Comm/Fee':
+                        col_names['fee'] = col_index
+                break
+    return col_names
 
-    return closed_lots_list, inds_sorted_close_dates, dividends_list
+
+def get_dividends_col_names(csv_file):
+    col_names = {}
+    with open(csv_file, 'r') as read_obj:
+        csv_reader = csv.reader(read_obj)
+        for row in csv_reader:
+            if row[0] == 'Dividends' and row[1] == 'Header':
+                col_names['main'] = 0
+                col_names['header'] = 1
+                for col_index, element in enumerate(row):
+                    if element == 'Currency':
+                        col_names['currency'] = col_index
+                    if element == 'Date':
+                        col_names['datetime'] = col_index
+                    if element == 'Description':
+                        col_names['ticker'] = col_index
+                    if element == 'Amount':
+                        col_names['amount'] = col_index
+                break
+    return col_names
+
 
 
 def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list):
@@ -317,8 +377,8 @@ def generate_tax_forms(file_dir, csv_file_name, verbosity=0):
     https://www.facebook.com/groups/Fininja/posts/1439526366410898/
     Output is an Excel file with data necessary for tax forms 1325, 1322, 1324.
     """
-    closed_lots_list, inds_sorted_close_dates, dividends_list = extract_data_from_csv(file_dir, csv_file_name,
-                                                                                      verbosity=verbosity)
+    closed_lots_list, inds_sorted_close_dates = extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=verbosity)
+    dividends_list = extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=verbosity)
     write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list)
     return
 
