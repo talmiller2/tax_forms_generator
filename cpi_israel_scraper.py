@@ -1,6 +1,7 @@
 
 import datetime
 from selenium import webdriver
+from bs4 import BeautifulSoup # makes it work on Google Colab
 
 CPI_ISRAEL_URL = 'https://calculators.hilan.co.il/calc/ConsumerPriceIndexCalculator.aspx'
 
@@ -16,15 +17,11 @@ class cpi_israel_scraper():
 
     def load_data(self):
         # configure Selenium to use a headless browser
-        # attempt to use both Chrome and Firefox (works on Google Colab).
-        try:
-            options = webdriver.ChromeOptions()
-            options.add_argument('-headless')
-            driver = webdriver.Chrome(options=options)
-        except:
-            options = webdriver.FirefoxOptions()
-            options.add_argument('-headless')
-            driver = webdriver.Firefox(options=options)
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')  # ensure GUI is off
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        driver = webdriver.Chrome(options=options)
 
         # get the source code for the page
         try:
