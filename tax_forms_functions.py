@@ -331,6 +331,7 @@ def generate_tax_forms(file_dir, csv_file_name, verbosity=0):
         dividends_list = extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=verbosity,
                                                          date_slash_format='USA')
     write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list)
+    print('Finished generating tax forms.')
     return
 
 
