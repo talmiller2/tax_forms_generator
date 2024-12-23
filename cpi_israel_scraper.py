@@ -1,4 +1,4 @@
-
+import numpy as np
 import datetime
 from selenium import webdriver
 from bs4 import BeautifulSoup # makes it work on Google Colab
@@ -9,10 +9,11 @@ class cpi_israel_scraper():
     """
     Load the Israeli CPI data from "hilan" website and use it to calculate the cpi for some date
     """
-    def __init__(self):
+    def __init__(self, fallback_on_missing_rate=True):
         dates, cpis = self.load_data()
         self.dates = dates
         self.cpis = cpis
+        self.fallback_on_missing_rate = fallback_on_missing_rate
         return
 
     def load_data(self):
@@ -72,9 +73,21 @@ class cpi_israel_scraper():
                              'is after the newest available data ', self.dates[-1].strftime("%d/%m/%Y"))
 
         # search for the relevant month in the data
+        delta_date_list = []
         for date, cpi in zip(self.dates, self.cpis):
+            delta_date = date - date_input
+            delta_date_list += [abs(delta_date.total_seconds())]
             if date_input.year == date.year and date_input.month == date.month:
                 return cpi
                 break
 
-        raise ValueError('cpi was not found for date', date_input.strftime("%d/%m/%Y"))
+        cpi_not_found_message = 'cpi was not found for date ' + str(date_input.strftime("%d/%m/%Y"))
+        if self.fallback_on_missing_rate == False:
+            raise ValueError(cpi_not_found_message)
+        else:
+            print(cpi_not_found_message)
+            ind_closest_date = np.argmin(np.array(delta_date_list))
+            cpi_closest_date = self.cpis[ind_closest_date]
+            print('using the closest available cpi data for date ' + str(self.cpis[ind_closest_date]))
+            return cpi_closest_date
+
