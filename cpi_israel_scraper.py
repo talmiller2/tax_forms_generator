@@ -63,14 +63,15 @@ class cpi_israel_scraper():
 
     def get_cpi_value(self, date_input):
         # check input date is within available data
-        if date_input.year < self.dates[0].year \
-                or (date_input.year == self.dates[0].year and date_input.month < self.dates[0].month):
-            raise ValueError('input date', date_input.strftime("%d/%m/%Y"),
-                             'is before the oldest available data ', self.dates[0].strftime("%d/%m/%Y"))
-        if date_input.year > self.dates[-1].year \
-                or (date_input.year == self.dates[-1].year and date_input.month > self.dates[-1].month):
-            raise ValueError('input date', date_input.strftime("%d/%m/%Y"),
-                             'is after the newest available data ', self.dates[-1].strftime("%d/%m/%Y"))
+        if self.fallback_on_missing_rate == False:
+            if date_input.year < self.dates[0].year \
+                    or (date_input.year == self.dates[0].year and date_input.month < self.dates[0].month):
+                raise ValueError('input date', date_input.strftime("%d/%m/%Y"),
+                                 'is before the oldest available data ', self.dates[0].strftime("%d/%m/%Y"))
+            if date_input.year > self.dates[-1].year \
+                    or (date_input.year == self.dates[-1].year and date_input.month > self.dates[-1].month):
+                raise ValueError('input date', date_input.strftime("%d/%m/%Y"),
+                                 'is after the newest available data ', self.dates[-1].strftime("%d/%m/%Y"))
 
         # search for the relevant month in the data
         delta_date_list = []
