@@ -89,6 +89,6 @@ class cpi_israel_scraper():
             print(cpi_not_found_message)
             ind_closest_date = np.argmin(np.array(delta_date_list))
             cpi_closest_date = self.cpis[ind_closest_date]
-            print('using the closest available cpi data for date ' + str(self.cpis[ind_closest_date]))
+            print('using the closest available cpi data for date ' + str(self.dates[ind_closest_date]))
             return cpi_closest_date
 
