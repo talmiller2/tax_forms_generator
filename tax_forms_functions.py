@@ -14,7 +14,7 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
     read the csv output file from IB and extract the necessary data for closing transactions and dividends
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
-    c = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
+    coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
     cpi = cpi_israel_scraper(fallback_on_missing_rate=True)
 
     # csv file column definitions
@@ -91,9 +91,9 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                                 closed_lot_dict['position_type'] = 'short'
 
                             # convert numbers from base currency to ILS and calculate profit and loss according to Israeli regulation
-                            closed_lot_dict['open_currency_factor'] = c.convert(1, closed_lot_dict['currency'], 'ILS',
+                            closed_lot_dict['open_currency_factor'] = coin.convert(1, closed_lot_dict['currency'], 'ILS',
                                                                                 date=closed_lot_dict['open_datetime'])
-                            closed_lot_dict['close_currency_factor'] = c.convert(1, closed_lot_dict['currency'], 'ILS',
+                            closed_lot_dict['close_currency_factor'] = coin.convert(1, closed_lot_dict['currency'], 'ILS',
                                                                                  date=closed_lot_dict['close_datetime'])
                             closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                        closed_lot_dict['open_currency_factor']
@@ -138,8 +138,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                 output_string += 'open_value=' + str(closed_lot_dict['open_value']) + ', '
                 output_string += 'close_value=' + str(closed_lot_dict['close_value']) + ', '
                 output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
-                rate_open = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
-                rate_close = c.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
+                rate_open = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
+                rate_close = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
                 output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
                 output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
                                  + ', close=' + str(closed_lot_dict['close_cpi']) \
@@ -160,7 +160,7 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
     read the csv output file from IB and extract the necessary data for dividends
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
-    c = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
+    coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
 
     # csv file column definitions
     col_names = get_dividends_col_names(csv_file)
@@ -204,7 +204,7 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
 
         # some post-processing for the dividends
         for ind, dividend_dict in enumerate(dividends_list):
-            dividend_dict['currency_factor'] = c.convert(1, dividend_dict['currency'], 'ILS',
+            dividend_dict['currency_factor'] = coin.convert(1, dividend_dict['currency'], 'ILS',
                                                          date=dividend_dict['datetime'])
             dividend_dict['dividend'] = dividend_dict['amount']
             dividend_dict['dividend_ILS'] = dividend_dict['dividend'] * dividend_dict['currency_factor']
