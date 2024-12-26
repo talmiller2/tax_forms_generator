@@ -6,7 +6,7 @@ import os
 
 import openpyxl
 from currency_converter import CurrencyConverter, ECB_URL
-from cpi_israel_scraper import cpi_israel_scraper
+from cpi_israel import get_israel_cpi_value
 from aux_functions import get_date_format, get_trades_col_names, get_dividends_col_names
 
 def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slash_format='normal'):
@@ -15,7 +15,6 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
     coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
-    cpi = cpi_israel_scraper(fallback_on_missing_rate=True)
 
     # csv file column definitions
     col_names = get_trades_col_names(csv_file)
@@ -98,8 +97,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                             closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                        closed_lot_dict['open_currency_factor']
 
-                            closed_lot_dict['open_cpi'] = cpi.get_cpi_value(closed_lot_dict['open_datetime'])
-                            closed_lot_dict['close_cpi'] = cpi.get_cpi_value(closed_lot_dict['close_datetime'])
+                            closed_lot_dict['open_cpi'] = get_israel_cpi_value(closed_lot_dict['open_datetime'])
+                            closed_lot_dict['close_cpi'] = get_israel_cpi_value(closed_lot_dict['close_datetime'])
                             closed_lot_dict['cpi_ratio'] = closed_lot_dict['close_cpi'] / closed_lot_dict['open_cpi']
 
                             closed_lot_dict['open_value_ILS'] = closed_lot_dict['open_value'] \
