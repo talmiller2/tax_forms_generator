@@ -33,8 +33,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                     print(row)
 
                 # skip irrelevant rows
-                if row[col_names['main']] == 'Trades' and row[col_names['asset_category']] in ['Stocks', 'Equity and Index Options']:
-                    if row[col_names['trade_type']] in ['Trade', 'ClosedLot']:
+                if row[col_names['main']] == 'Trades' and row[col_names['header']] == 'Data' and row[col_names['asset_category']] in ['Stocks', 'Equity and Index Options']:
+                    if 'Trade' in row[col_names['trade_type']] or 'ClosedLot' in row[col_names['trade_type']]:
                         trade_dict = {}
                         trade_dict['trade_type'] = row[col_names['trade_type']]
                         trade_dict['currency'] = row[col_names['currency']]
@@ -47,9 +47,9 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                         trade_dict['price'] = float(row[col_names['price']])
                         if row[col_names['trade_type']] == 'Trade':
                             trade_dict['fee'] = abs(float(row[col_names['fee']]))
-                        if trade_dict['trade_type'] == 'Trade':
+                        if 'Trade' in trade_dict['trade_type']:
                             previous_trade_dict = copy.deepcopy(trade_dict)
-                        elif trade_dict['trade_type'] == 'ClosedLot':
+                        elif 'ClosedLot' in trade_dict['trade_type']:
                             closed_lot_dict = {}
                             closed_lot_dict['currency'] = trade_dict['currency']
                             closed_lot_dict['ticker'] = trade_dict['ticker']
