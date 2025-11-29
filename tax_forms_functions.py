@@ -226,7 +226,7 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
 
     if len(closed_lots_list) > 0:
         for sheet_name in ['Capital Gains (FOREX adjusted)', 'Capital Gains (CPI adjusted)']:
-            sheet = xfile.get_sheet_by_name(sheet_name)
+            sheet = xfile[sheet_name]
             total_profit_and_loss_ILS = 0
             total_sell_amount_ILS = 0
             for ind_line, ind_sort in enumerate(inds_sorted_close_dates):
@@ -277,7 +277,7 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
             sheet['T5'] = total_sell_amount_ILS
 
     if len(dividends_list) > 0:
-        sheet = xfile.get_sheet_by_name('Dividends')
+        sheet = xfile['Dividends']
         total_dividends = 0
         total_dividends_ILS = 0
         withholding_tax = 0
