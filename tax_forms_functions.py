@@ -6,8 +6,10 @@ import os
 
 import openpyxl
 from currency_converter import CurrencyConverter, ECB_URL
-from cpi_israel import get_israel_cpi_value
+
 from aux_functions import get_date_format, get_trades_col_names, get_dividends_col_names
+from cpi_israel import get_israel_cpi_value
+
 
 def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slash_format='normal'):
     """
@@ -33,7 +35,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                     print(row)
 
                 # skip irrelevant rows
-                if row[col_names['main']] == 'Trades' and row[col_names['header']] == 'Data' and row[col_names['asset_category']] in ['Stocks', 'Equity and Index Options']:
+                if row[col_names['main']] == 'Trades' and row[col_names['header']] == 'Data' and row[
+                    col_names['asset_category']] in ['Stocks', 'Equity and Index Options']:
                     if 'Trade' in row[col_names['trade_type']] or 'ClosedLot' in row[col_names['trade_type']]:
                         trade_dict = {}
                         trade_dict['trade_type'] = row[col_names['trade_type']]
@@ -66,7 +69,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                             closed_lot_dict['close_price'] = previous_trade_dict['price']
 
                             # the following works for both long/short positions
-                            closed_lot_dict['close_value'] = closed_lot_dict['quantity'] * closed_lot_dict['close_price']
+                            closed_lot_dict['close_value'] = closed_lot_dict['quantity'] * closed_lot_dict[
+                                'close_price']
 
                             # the open_value already takes into account the fee for opening the position
                             closed_lot_dict['open_value'] = closed_lot_dict['quantity'] * closed_lot_dict['open_price']
@@ -90,37 +94,54 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                                 closed_lot_dict['position_type'] = 'short'
 
                             # convert numbers from base currency to ILS and calculate profit and loss according to Israeli regulation
-                            closed_lot_dict['open_currency_factor'] = coin.convert(1, closed_lot_dict['currency'], 'ILS',
-                                                                                date=closed_lot_dict['open_datetime'])
-                            closed_lot_dict['close_currency_factor'] = coin.convert(1, closed_lot_dict['currency'], 'ILS',
-                                                                                 date=closed_lot_dict['close_datetime'])
+                            closed_lot_dict['open_currency_factor'] = coin.convert(1, closed_lot_dict['currency'],
+                                                                                   'ILS',
+                                                                                   date=closed_lot_dict[
+                                                                                       'open_datetime'])
+                            closed_lot_dict['close_currency_factor'] = coin.convert(1, closed_lot_dict['currency'],
+                                                                                    'ILS',
+                                                                                    date=closed_lot_dict[
+                                                                                        'close_datetime'])
                             closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                        closed_lot_dict['open_currency_factor']
 
-                            closed_lot_dict['open_cpi'] = get_israel_cpi_value(closed_lot_dict['open_datetime'])
-                            closed_lot_dict['close_cpi'] = get_israel_cpi_value(closed_lot_dict['close_datetime'])
-                            closed_lot_dict['cpi_ratio'] = closed_lot_dict['close_cpi'] / closed_lot_dict['open_cpi']
+                            # get cpi values for the relevant dates
+                            try:
+                                closed_lot_dict['open_cpi'] = get_israel_cpi_value(closed_lot_dict['open_datetime'])
+                                closed_lot_dict['close_cpi'] = get_israel_cpi_value(closed_lot_dict['close_datetime'])
+                                closed_lot_dict['cpi_ratio'] = closed_lot_dict['close_cpi'] / closed_lot_dict[
+                                    'open_cpi']
+                                cpi_extraction_succeeded = True
+                            except:
+                                print(
+                                    "*** failed to extract CPI data, skipping it because it is used only for educational purpose.")
+                                cpi_extraction_succeeded = False
 
                             closed_lot_dict['open_value_ILS'] = closed_lot_dict['open_value'] \
                                                                 * closed_lot_dict['open_currency_factor']
                             closed_lot_dict['open_value_ILS_adjusted_forex'] = closed_lot_dict['open_value_ILS'] \
-                                                                               * closed_lot_dict['currency_factor_ratio']
-                            closed_lot_dict['open_value_ILS_adjusted_cpi'] = closed_lot_dict['open_value_ILS'] \
-                                                                             * closed_lot_dict['cpi_ratio']
+                                                                               * closed_lot_dict[
+                                                                                   'currency_factor_ratio']
+                            if cpi_extraction_succeeded:
+                                closed_lot_dict['open_value_ILS_adjusted_cpi'] = closed_lot_dict['open_value_ILS'] \
+                                                                                 * closed_lot_dict['cpi_ratio']
                             closed_lot_dict['close_value_ILS'] = closed_lot_dict['close_value'] \
                                                                  * closed_lot_dict['close_currency_factor']
                             profit_trivial = closed_lot_dict['close_value_ILS'] \
-                                              - closed_lot_dict['open_value_ILS']
+                                             - closed_lot_dict['open_value_ILS']
                             profit_adjusted_forex = closed_lot_dict['close_value_ILS'] \
                                                     - closed_lot_dict['open_value_ILS_adjusted_forex']
-                            profit_adjusted_cpi = closed_lot_dict['close_value_ILS'] \
-                                                  - closed_lot_dict['open_value_ILS_adjusted_cpi']
+                            if cpi_extraction_succeeded:
+                                profit_adjusted_cpi = closed_lot_dict['close_value_ILS'] \
+                                                      - closed_lot_dict['open_value_ILS_adjusted_cpi']
                             if closed_lot_dict['profit'] >= 0:
                                 closed_lot_dict['profit_ILS_forex'] = max(min(profit_trivial, profit_adjusted_forex), 0)
-                                closed_lot_dict['profit_ILS_cpi'] = max(min(profit_trivial, profit_adjusted_cpi), 0)
+                                if cpi_extraction_succeeded:
+                                    closed_lot_dict['profit_ILS_cpi'] = max(min(profit_trivial, profit_adjusted_cpi), 0)
                             elif closed_lot_dict['profit'] < 0:
                                 closed_lot_dict['profit_ILS_forex'] = min(max(profit_trivial, profit_adjusted_forex), 0)
-                                closed_lot_dict['profit_ILS_cpi'] = min(max(profit_trivial, profit_adjusted_cpi), 0)
+                                if cpi_extraction_succeeded:
+                                    closed_lot_dict['profit_ILS_cpi'] = min(max(profit_trivial, profit_adjusted_cpi), 0)
 
                             closed_lots_list += [closed_lot_dict]
                             closed_lots_datetime_list += [closed_lot_dict['close_datetime']]
@@ -140,19 +161,21 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                 rate_open = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
                 rate_close = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
                 output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
-                output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
-                                 + ', close=' + str(closed_lot_dict['close_cpi']) \
-                                 + ', ratio=' + str(closed_lot_dict['cpi_ratio'])
+                if cpi_extraction_succeeded:
+                    output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
+                                     + ', close=' + str(closed_lot_dict['close_cpi']) \
+                                     + ', ratio=' + str(closed_lot_dict['cpi_ratio'])
                 print(output_string)
 
         # sort closed-lots by closing date, as required in form 1325
         inds_sorted_close_dates = [i[0] for i in sorted(enumerate(closed_lots_datetime_list), key=lambda x: x[1])]
 
-        return closed_lots_list, inds_sorted_close_dates
+        return closed_lots_list, inds_sorted_close_dates, cpi_extraction_succeeded
 
     else:
         print('no trades exist in the file.')
         return [], []
+
 
 def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slash_format='normal'):
     """
@@ -204,7 +227,7 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
         # some post-processing for the dividends
         for ind, dividend_dict in enumerate(dividends_list):
             dividend_dict['currency_factor'] = coin.convert(1, dividend_dict['currency'], 'ILS',
-                                                         date=dividend_dict['datetime'])
+                                                            date=dividend_dict['datetime'])
             dividend_dict['dividend'] = dividend_dict['amount']
             dividend_dict['dividend_ILS'] = dividend_dict['dividend'] * dividend_dict['currency_factor']
             dividend_dict['withholding_tax_ILS'] = dividend_dict['withholding_tax'] * dividend_dict['currency_factor']
@@ -215,7 +238,9 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
         print('no dividends exist in the file.')
         return []
 
-def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list):
+
+def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list,
+                         cpi_extraction_succeeded):
     """
     write an Excel file with summary of transactions in the correct format of form 1325,
     and dividends + withohlding tax table and summary for forms 1322 + 1324.
@@ -225,7 +250,10 @@ def write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_
     xfile = openpyxl.load_workbook(template_file)
 
     if len(closed_lots_list) > 0:
-        for sheet_name in ['Capital Gains (FOREX adjusted)', 'Capital Gains (CPI adjusted)']:
+        sheet_names = ['Capital Gains (FOREX adjusted)']
+        if cpi_extraction_succeeded:
+            sheet_names += ['Capital Gains (CPI adjusted)']
+        for sheet_name in sheet_names:
             sheet = xfile[sheet_name]
             total_profit_and_loss_ILS = 0
             total_sell_amount_ILS = 0
@@ -319,17 +347,21 @@ def generate_tax_forms(file_dir, csv_file_name, verbosity=0):
     Output is an Excel file with data necessary for tax forms 1325, 1322, 1324.
     """
     try:
-        closed_lots_list, inds_sorted_close_dates = extract_trades_data_from_csv(file_dir, csv_file_name,
-                                                                                 verbosity=verbosity)
+        closed_lots_list, inds_sorted_close_dates, cpi_extraction_succeeded = extract_trades_data_from_csv(file_dir,
+                                                                                                           csv_file_name,
+                                                                                                           verbosity=verbosity)
         dividends_list = extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=verbosity)
     except:
-        print("failed to use date_slash_format='normal' somewhere in the csv file, attemping date_slash_format='USA'")
-        closed_lots_list, inds_sorted_close_dates = extract_trades_data_from_csv(file_dir, csv_file_name,
-                                                                                 verbosity=verbosity,
-                                                                                 date_slash_format='USA')
+        print("*** failed to use date_slash_format='normal' somewhere in the csv file, "
+              "attemping date_slash_format='USA'")
+        closed_lots_list, inds_sorted_close_dates, cpi_extraction_succeeded = extract_trades_data_from_csv(file_dir,
+                                                                                                           csv_file_name,
+                                                                                                           verbosity=verbosity,
+                                                                                                           date_slash_format='USA')
         dividends_list = extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=verbosity,
                                                          date_slash_format='USA')
-    write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list)
+    write_tax_form_files(file_dir, csv_file_name, closed_lots_list, inds_sorted_close_dates, dividends_list,
+                         cpi_extraction_succeeded)
     print('Finished generating tax forms.')
     return
 
