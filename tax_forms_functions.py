@@ -18,6 +18,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
     csv_file = file_dir + '/' + csv_file_name + '.csv'
     coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
 
+    cpi_extraction_succeeded = False # initialize
+
     # csv file column definitions
     col_names = get_trades_col_names(csv_file)
 
