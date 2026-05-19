@@ -5,9 +5,9 @@ import datetime
 import os
 
 import openpyxl
-from currency_converter import CurrencyConverter, ECB_URL
 
 from aux_functions import get_date_format, get_trades_col_names, get_dividends_col_names
+from boi_currency_rates import get_boi_rate_with_fallback
 from cpi_israel import get_israel_cpi_value
 
 
@@ -16,9 +16,8 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
     read the csv output file from IB and extract the necessary data for closing transactions and dividends
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
-    coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
 
-    cpi_extraction_succeeded = False # initialize
+    cpi_extraction_succeeded = False  # initialize
 
     # csv file column definitions
     col_names = get_trades_col_names(csv_file)
@@ -96,14 +95,12 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                                 closed_lot_dict['position_type'] = 'short'
 
                             # convert numbers from base currency to ILS and calculate profit and loss according to Israeli regulation
-                            closed_lot_dict['open_currency_factor'] = coin.convert(1, closed_lot_dict['currency'],
-                                                                                   'ILS',
-                                                                                   date=closed_lot_dict[
-                                                                                       'open_datetime'])
-                            closed_lot_dict['close_currency_factor'] = coin.convert(1, closed_lot_dict['currency'],
-                                                                                    'ILS',
-                                                                                    date=closed_lot_dict[
-                                                                                        'close_datetime'])
+                            closed_lot_dict['open_currency_factor'] = \
+                                get_boi_rate_with_fallback(closed_lot_dict['open_datetime'],
+                                                           currency=closed_lot_dict['currency'])[1]
+                            closed_lot_dict['close_currency_factor'] = \
+                                get_boi_rate_with_fallback(closed_lot_dict['close_datetime'],
+                                                           currency=closed_lot_dict['currency'])[1]
                             closed_lot_dict['currency_factor_ratio'] = closed_lot_dict['close_currency_factor'] / \
                                                                        closed_lot_dict['open_currency_factor']
 
@@ -160,8 +157,12 @@ def extract_trades_data_from_csv(file_dir, csv_file_name, verbosity=0, date_slas
                 output_string += 'open_value=' + str(closed_lot_dict['open_value']) + ', '
                 output_string += 'close_value=' + str(closed_lot_dict['close_value']) + ', '
                 output_string += 'profit=' + str(closed_lot_dict['profit']) + ', '
-                rate_open = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['open_datetime'])
-                rate_close = coin.convert(1, closed_lot_dict['currency'], 'ILS', date=closed_lot_dict['close_datetime'])
+
+                rate_open = get_boi_rate_with_fallback(closed_lot_dict['open_datetime'],
+                                                       currency=closed_lot_dict['currency'])[1]
+                rate_close = get_boi_rate_with_fallback(closed_lot_dict['close_datetime'],
+                                                        currency=closed_lot_dict['currency'])[1]
+
                 output_string += 'forex rate open=' + str(rate_open) + ', close=' + str(rate_close) + ', '
                 if cpi_extraction_succeeded:
                     output_string += 'cpi open=' + str(closed_lot_dict['open_cpi']) \
@@ -184,7 +185,6 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
     read the csv output file from IB and extract the necessary data for dividends
     """
     csv_file = file_dir + '/' + csv_file_name + '.csv'
-    coin = CurrencyConverter(ECB_URL, fallback_on_missing_rate=True)  # using the ECB database
 
     # csv file column definitions
     col_names = get_dividends_col_names(csv_file)
@@ -228,8 +228,9 @@ def extract_dividends_data_from_csv(file_dir, csv_file_name, verbosity=0, date_s
 
         # some post-processing for the dividends
         for ind, dividend_dict in enumerate(dividends_list):
-            dividend_dict['currency_factor'] = coin.convert(1, dividend_dict['currency'], 'ILS',
-                                                            date=dividend_dict['datetime'])
+            dividend_dict['currency_factor'] = \
+            get_boi_rate_with_fallback(dividend_dict['datetime'], currency=dividend_dict['currency'])[1]
+
             dividend_dict['dividend'] = dividend_dict['amount']
             dividend_dict['dividend_ILS'] = dividend_dict['dividend'] * dividend_dict['currency_factor']
             dividend_dict['withholding_tax_ILS'] = dividend_dict['withholding_tax'] * dividend_dict['currency_factor']
